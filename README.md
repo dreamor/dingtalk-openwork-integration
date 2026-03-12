@@ -73,6 +73,7 @@ npm run dev
 |-----|------|-------|
 | `OPENCODE_COMMAND` | OpenCode 命令路径 | opencode |
 | `OPENCODE_TIMEOUT` | 执行超时时间(ms) | 120000 |
+| `OPENCODE_MODEL` | 模型名称 | 使用 CLI 默认配置 |
 
 ### 消息模式配置
 
