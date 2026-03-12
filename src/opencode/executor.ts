@@ -19,7 +19,6 @@ export interface OpenCodeConfig {
   timeout: number;        // 执行超时时间
   maxRetries: number;     // 最大重试次数
   workingDir?: string;    // 工作目录
-  model: string;          // 模型名称
   maxInputLength: number; // 最大输入长度
 }
 
@@ -50,7 +49,6 @@ export class OpenCodeExecutor {
       timeout: config.opencode.timeout,
       maxRetries: config.opencode.maxRetries,
       workingDir: config.opencode.workingDir,
-      model: config.opencode.model,
       maxInputLength: config.opencode.maxInputLength,
       ...options,
     };
@@ -157,13 +155,11 @@ export class OpenCodeExecutor {
 
   /**
    * 构建命令参数（不包含用户输入，通过 stdin 传递以提高安全性）
-   * OpenCode CLI 调用方式：opencode run -m "model"
+   * OpenCode CLI 调用方式：opencode run
+   * 模型使用 OpenCode CLI 配置的默认模型
    */
   private buildCommandArgs(): string[] {
-    return [
-      'run',
-      '-m', this.config.model,
-    ];
+    return ['run'];
   }
 
   /**

@@ -25,7 +25,6 @@ interface OpenCodeConfig {
   timeout: number;
   maxRetries: number;
   workingDir?: string;
-  model: string;           // 模型名称
   maxInputLength: number;  // 最大输入长度（字符）
 }
 
@@ -70,7 +69,6 @@ export const config = {
     timeout: parseInt(process.env.OPENCODE_TIMEOUT || '120000', 10),
     maxRetries: parseInt(process.env.OPENCODE_MAX_RETRIES || '1', 10),
     workingDir: process.env.OPENCODE_WORKING_DIR || process.cwd(),
-    model: process.env.OPENCODE_MODEL || 'opencode/minimax-m2.5-free',
     maxInputLength: parseInt(process.env.OPENCODE_MAX_INPUT_LENGTH || '10000', 10),
   } as OpenCodeConfig,
 
