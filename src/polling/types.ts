@@ -47,7 +47,6 @@ export interface PollingConfig {
   minInterval: number;
   maxInterval: number;
   idleThreshold: number;
-  webhookEnabled: boolean;
 }
 
 /**

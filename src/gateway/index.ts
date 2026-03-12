@@ -1,9 +1,9 @@
 /**
- * Gateway 服务模块 - 简化版消息处理
- * 所有消息直接路由到 OpenCode CLI 处理
+ * Gateway 服务模块 - 基于 Stream 模式的消息处理
+ * 所有消息通过 Stream 连接接收，无需 Webhook 回调
  */
 import express, { Express, Request, Response, NextFunction } from 'express';
-import { DingtalkService, type DingtalkMessage } from '../dingtalk/dingtalk';
+import { DingtalkService } from '../dingtalk/dingtalk';
 import { SessionManager } from '../session-manager';
 import { MessageQueue } from '../message-queue/messageQueue';
 import { RateLimiter } from '../message-queue/rateLimiter';
@@ -137,21 +137,8 @@ export class GatewayServer {
       res.json({
         status: 'ok',
         timestamp: new Date().toISOString(),
-        mode: 'opencode',
+        mode: 'stream',
       });
-    });
-
-    // 钉钉 Webhook 回调
-    this.app.post('/api/dingtalk/webhook', async (req: Request, res: Response) => {
-      try {
-        await this.handleDingtalkMessage(req, res);
-      } catch (error) {
-        console.error('处理钉钉消息失败:', error);
-        res.status(500).json({
-          success: false,
-          message: '消息处理失败',
-        });
-      }
     });
 
     // 测试接口
@@ -200,101 +187,6 @@ export class GatewayServer {
         },
       });
     });
-  }
-
-  private async handleDingtalkMessage(req: Request, res: Response): Promise<void> {
-    const timestamp = req.headers['x-dingtalk-timestamp'] as string;
-    const sign = req.headers['x-dingtalk-signature'] as string;
-
-    // 签名验证（仅在配置了 signingSecret 时启用）
-    // 注意：Stream 模式不需要签名验证，此逻辑仅用于传统 Webhook 备用模式
-    if (config.dingtalk.signingSecret) {
-      // 检查签名信息是否存在
-      if (!timestamp || !sign) {
-        console.warn('[Gateway] 缺少签名信息');
-        res.status(401).json({ success: false, message: '缺少签名信息' });
-        return;
-      }
-
-      // 验证时间戳（防止重放攻击）
-      if (!this.dingtalkService.verifyTimestamp(timestamp)) {
-        console.warn(`[Gateway] 消息已过期，时间戳：${timestamp}`);
-        res.status(401).json({ success: false, message: '消息已过期' });
-        return;
-      }
-
-      // 验证签名内容
-      try {
-        if (!this.dingtalkService.verifySignature(timestamp, sign)) {
-          console.warn(`[Gateway] 签名验证失败，时间戳：${timestamp}`);
-          res.status(401).json({ success: false, message: '签名验证失败' });
-          return;
-        }
-      } catch (error) {
-        console.error('[Gateway] 签名验证过程中发生错误:', error);
-        res.status(401).json({ success: false, message: '签名验证失败' });
-        return;
-      }
-    }
-
-    // 解析消息
-    let message: DingtalkMessage;
-    try {
-      if (req.body.encrypt) {
-        // 注意：解密功能需要配置 aesKey，Stream 模式下不需要
-        if (!config.dingtalk.aesKey) {
-          console.warn('[Gateway] 收到加密消息但未配置 aesKey');
-          res.status(400).json({ success: false, message: '未配置消息解密' });
-          return;
-        }
-        const decryptedContent = this.dingtalkService.decryptMessage(req.body.encrypt);
-        message = JSON.parse(decryptedContent);
-      } else {
-        message = req.body;
-      }
-    } catch (error) {
-      console.error('消息解密失败:', error);
-      res.status(400).json({ success: false, message: '消息格式错误' });
-      return;
-    }
-
-    // 只处理文本消息
-    if (message.msgType !== 'text') {
-      console.log(`不支持的消息类型：${message.msgType}`);
-      res.json({ success: true, message: '消息已接收 (暂不支持此类型)' });
-      return;
-    }
-
-    const { userId, userName } = this.dingtalkService.parseUserIdentity(message);
-    const msgContent = message.text?.content || '';
-
-    console.log(`收到用户 ${userName}(${userId}) 的消息：${msgContent}`);
-
-    // 处理消息
-    const result = await this.processMessage({
-      msg: msgContent,
-      userId,
-      userName,
-    });
-
-    // 发送回复
-    const accessToken = await this.dingtalkService.getAccessToken();
-    
-    if (result.success && result.data?.result) {
-      const markdownText = renderMarkdown(result.data.result);
-      await this.dingtalkService.sendMarkdownMessage(
-        accessToken,
-        'OpenCode 回复',
-        markdownText
-      );
-    } else {
-      await this.dingtalkService.sendTextMessage(
-        accessToken,
-        `❌ 处理失败：${result.message}`
-      );
-    }
-
-    res.json({ success: true, message: '消息已处理' });
   }
 
   /**
@@ -360,6 +252,55 @@ export class GatewayServer {
         role: msg.type === 'user' ? 'user' as const : 'assistant' as const,
         content: msg.content,
       }));
+  }
+
+  /**
+   * 处理来自 Stream 的消息并发送回复
+   */
+  async handleStreamMessage(
+    msg: string,
+    userId: string,
+    userName: string
+  ): Promise<void> {
+    console.log(`[Gateway] 收到 Stream 消息：用户 ${userName}(${userId}) - ${msg}`);
+
+    try {
+      // 处理消息
+      const result = await this.processMessage({
+        msg,
+        userId,
+        userName,
+      });
+
+      // 发送回复
+      const accessToken = await this.dingtalkService.getAccessToken();
+      
+      if (result.success && result.data?.result) {
+        const markdownText = renderMarkdown(result.data.result);
+        await this.dingtalkService.sendMarkdownMessage(
+          accessToken,
+          'OpenCode 回复',
+          markdownText
+        );
+      } else {
+        await this.dingtalkService.sendTextMessage(
+          accessToken,
+          `❌ 处理失败：${result.message}`
+        );
+      }
+    } catch (error) {
+      console.error('[Gateway] 处理 Stream 消息失败:', error);
+      // 尝试发送错误回复
+      try {
+        const accessToken = await this.dingtalkService.getAccessToken();
+        await this.dingtalkService.sendTextMessage(
+          accessToken,
+          '❌ 消息处理失败，请稍后重试'
+        );
+      } catch (sendError) {
+        console.error('[Gateway] 发送错误回复失败:', sendError);
+      }
+    }
   }
 
   async start(port: number, host: string = '0.0.0.0'): Promise<void> {

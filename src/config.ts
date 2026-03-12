@@ -11,9 +11,6 @@ interface DingtalkConfig {
   appKey: string;
   appSecret: string;
   accessToken: string;
-  // 以下为 Webhook 备用模式配置（Stream 模式不需要）
-  aesKey?: string;
-  signingSecret?: string;
 }
 
 interface GatewayConfig {
@@ -59,9 +56,6 @@ export const config = {
     appKey: process.env.DINGTALK_APP_KEY || '',
     appSecret: process.env.DINGTALK_APP_SECRET || '',
     accessToken: process.env.DINGTALK_ACCESS_TOKEN || '',
-    // Webhook 备用模式配置（可选）
-    aesKey: process.env.DINGTALK_AES_KEY || undefined,
-    signingSecret: process.env.DINGTALK_SIGNING_SECRET || undefined,
   } as DingtalkConfig,
 
   gateway: {

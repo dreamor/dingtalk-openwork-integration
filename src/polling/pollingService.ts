@@ -31,7 +31,6 @@ export class PollingService {
       minInterval: 1000,
       maxInterval: 10000,
       idleThreshold: 3,
-      webhookEnabled: false,
     });
   }
 

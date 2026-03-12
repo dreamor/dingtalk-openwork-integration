@@ -21,7 +21,6 @@ export class IntervalManager {
       minInterval: config?.minInterval ?? 1000,
       maxInterval: config?.maxInterval ?? 10000,
       idleThreshold: config?.idleThreshold ?? 3,
-      webhookEnabled: config?.webhookEnabled ?? false,
     };
     this.currentInterval = this.config.interval;
     this.consecutiveEmptyPulls = 0;
