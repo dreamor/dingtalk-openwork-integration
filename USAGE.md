@@ -41,6 +41,9 @@ GATEWAY_PORT=3000
 GATEWAY_HOST=0.0.0.0
 GATEWAY_API_TOKEN=your_token  # 保护敏感接口
 
+# OpenCode 配置
+OPENCODE_MODEL=provider/model  # 模型名称，留空使用CLI默认
+
 # Stream 模式（推荐）
 STREAM_ENABLED=true
 STREAM_MAX_RECONNECT=5
