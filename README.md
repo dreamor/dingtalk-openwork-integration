@@ -65,6 +65,14 @@ npm run dev
 | `DINGTALK_APP_KEY` | 钉钉应用 Key | 是 |
 | `DINGTALK_APP_SECRET` | 钉钉应用 Secret | 是 |
 
+### Gateway 配置
+
+| 参数 | 说明 | 默认值 |
+|-----|------|-------|
+| `GATEWAY_PORT` | 服务端口 | 3000 |
+| `GATEWAY_HOST` | 监听地址 | 0.0.0.0 |
+| `GATEWAY_API_TOKEN` | API 访问令牌（保护敏感接口） | 无 |
+
 ### OpenCode 配置
 
 | 参数 | 说明 | 默认值 |

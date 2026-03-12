@@ -36,6 +36,11 @@ DINGTALK_APP_SECRET=your_app_secret
 **可选配置**：
 
 ```bash
+# Gateway 配置
+GATEWAY_PORT=3000
+GATEWAY_HOST=0.0.0.0
+GATEWAY_API_TOKEN=your_token  # 保护敏感接口
+
 # Stream 模式（推荐）
 STREAM_ENABLED=true
 STREAM_MAX_RECONNECT=5
