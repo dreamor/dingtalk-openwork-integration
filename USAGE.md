@@ -31,7 +31,6 @@ cp .env.example .env
 # 钉钉配置
 DINGTALK_APP_KEY=your_app_key
 DINGTALK_APP_SECRET=your_app_secret
-DINGTALK_ACCESS_TOKEN=your_access_token
 ```
 
 **可选配置**：

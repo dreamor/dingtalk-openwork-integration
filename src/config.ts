@@ -10,7 +10,6 @@ dotenv.config({ override: true });
 interface DingtalkConfig {
   appKey: string;
   appSecret: string;
-  accessToken: string;
 }
 
 interface GatewayConfig {
@@ -55,7 +54,6 @@ export const config = {
   dingtalk: {
     appKey: process.env.DINGTALK_APP_KEY || '',
     appSecret: process.env.DINGTALK_APP_SECRET || '',
-    accessToken: process.env.DINGTALK_ACCESS_TOKEN || '',
   } as DingtalkConfig,
 
   gateway: {
@@ -105,9 +103,6 @@ export function validateConfig(): void {
   }
   if (!config.dingtalk.appSecret) {
     missingRequired.push('DINGTALK_APP_SECRET');
-  }
-  if (!config.dingtalk.accessToken) {
-    missingRequired.push('DINGTALK_ACCESS_TOKEN');
   }
 
   if (missingRequired.length > 0) {

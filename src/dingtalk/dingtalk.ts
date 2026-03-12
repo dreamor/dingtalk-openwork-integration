@@ -65,7 +65,7 @@ export class DingtalkService {
    * 验证配置完整性
    */
   validateConfig(): void {
-    const required = ['appKey', 'appSecret', 'accessToken'];
+    const required = ['appKey', 'appSecret'];
     const missing = required.filter(key => !config.dingtalk[key as keyof typeof config.dingtalk]);
 
     if (missing.length > 0) {

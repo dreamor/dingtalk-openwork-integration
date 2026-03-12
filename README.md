@@ -44,7 +44,6 @@ cp .env.example .env
 # 钉钉配置（必填）
 DINGTALK_APP_KEY=your_app_key
 DINGTALK_APP_SECRET=your_app_secret
-DINGTALK_ACCESS_TOKEN=your_access_token
 ```
 
 ### 4. 启动服务
@@ -65,7 +64,6 @@ npm run dev
 |-----|------|-----|
 | `DINGTALK_APP_KEY` | 钉钉应用 Key | 是 |
 | `DINGTALK_APP_SECRET` | 钉钉应用 Secret | 是 |
-| `DINGTALK_ACCESS_TOKEN` | 机器人 Access Token | 是 |
 
 ### OpenCode 配置
 
