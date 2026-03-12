@@ -206,7 +206,8 @@ export class GatewayServer {
     const timestamp = req.headers['x-dingtalk-timestamp'] as string;
     const sign = req.headers['x-dingtalk-signature'] as string;
 
-    // 签名验证
+    // 签名验证（仅在配置了 signingSecret 时启用）
+    // 注意：Stream 模式不需要签名验证，此逻辑仅用于传统 Webhook 备用模式
     if (config.dingtalk.signingSecret) {
       // 检查签名信息是否存在
       if (!timestamp || !sign) {
@@ -224,7 +225,6 @@ export class GatewayServer {
 
       // 验证签名内容
       try {
-        const body = JSON.stringify(req.body);
         if (!this.dingtalkService.verifySignature(timestamp, sign)) {
           console.warn(`[Gateway] 签名验证失败，时间戳：${timestamp}`);
           res.status(401).json({ success: false, message: '签名验证失败' });
@@ -241,6 +241,12 @@ export class GatewayServer {
     let message: DingtalkMessage;
     try {
       if (req.body.encrypt) {
+        // 注意：解密功能需要配置 aesKey，Stream 模式下不需要
+        if (!config.dingtalk.aesKey) {
+          console.warn('[Gateway] 收到加密消息但未配置 aesKey');
+          res.status(400).json({ success: false, message: '未配置消息解密' });
+          return;
+        }
         const decryptedContent = this.dingtalkService.decryptMessage(req.body.encrypt);
         message = JSON.parse(decryptedContent);
       } else {

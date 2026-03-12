@@ -66,7 +66,7 @@ export class DingtalkService {
    * 验证配置完整性
    */
   validateConfig(): void {
-    const required = ['appKey', 'appSecret', 'accessToken', 'aesKey', 'signingSecret'];
+    const required = ['appKey', 'appSecret', 'accessToken'];
     const missing = required.filter(key => !config.dingtalk[key as keyof typeof config.dingtalk]);
 
     if (missing.length > 0) {
@@ -117,6 +117,11 @@ export class DingtalkService {
     try {
       const { signingSecret } = config.dingtalk;
       
+      if (!signingSecret) {
+        console.warn('[Dingtalk] 未配置 signingSecret，跳过签名验证');
+        return true;
+      }
+      
       // 构建待签名字符串: timestamp + "\n" + signingSecret
       const stringToSign = `${timestamp}\n${signingSecret}`;
       
@@ -154,6 +159,10 @@ export class DingtalkService {
   decryptMessage(encryptedMsg: string): string {
     const { aesKey } = config.dingtalk;
 
+    if (!aesKey) {
+      throw new Error('未配置 aesKey，无法解密消息');
+    }
+
     // aesKey 需要先base64解码
     const key = Buffer.from(aesKey + '=', 'base64');
 
@@ -186,6 +195,11 @@ export class DingtalkService {
    */
   encryptMessage(content: string): string {
     const { aesKey } = config.dingtalk;
+    
+    if (!aesKey) {
+      throw new Error('未配置 aesKey，无法加密消息');
+    }
+    
     const key = Buffer.from(aesKey + '=', 'base64');
 
     const randomIV = crypto.randomBytes(16);
