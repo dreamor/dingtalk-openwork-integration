@@ -7,6 +7,7 @@
 import { DWClient, TOPIC_ROBOT, DWClientDownStream } from 'dingtalk-stream';
 import { config } from '../config';
 import axios from 'axios';
+import { updateAdminSessionWebhook, getAdminConversationId } from '../utils/alert';
 
 // 消息处理回调
 export interface MessageHandler {
@@ -29,23 +30,27 @@ export class DingtalkStreamService {
   private client: DWClient | null = null;
   private messageHandler: MessageHandler | null = null;
   private isConnected: boolean = false;
-  private reconnectAttempts: number = 0;
-  private readonly maxReconnectAttempts: number = config.stream.maxReconnectAttempts;
-  private readonly reconnectInterval: number = 3000; // 3秒重连间隔
+  private connectionStartTime: number = 0; // 连接开始时间
+  private lastHeartbeatTime: number = 0; // 最后心跳时间
   private pendingMessages: Map<string, SessionInfo> = new Map();
-  private cleanupTimer: NodeJS.Timeout | null = null; // 清理定时器
+  private cleanupTimer: NodeJS.Timeout | null = null;
+  private heartbeatMonitorTimer: NodeJS.Timeout | null = null; // 心跳监控定时器
   private readonly messageTTL: number = 30 * 60 * 1000; // 30分钟过期时间
+  private readonly heartbeatTimeout: number = 60 * 1000; // 60秒心跳超时
 
   constructor() {
     console.log('📡 Stream 模式服务已初始化 (使用官方 SDK)');
     console.log('   - 订阅主题:', DEFAULT_SUBSCRIPTIONS.map(s => s.topic).join(', '));
-    console.log(`   - 最大重连次数：${this.maxReconnectAttempts}`);
-    console.log(`   - 重连间隔：${this.reconnectInterval}ms`);
+    console.log('   - SDK 内置重连：启用 (keepAlive: true)');
+    console.log('   - 心跳超时监控：60秒');
     
     // 启动清理定时器，每5分钟清理一次过期的会话信息
     this.cleanupTimer = setInterval(() => {
       this.cleanupExpiredMessages();
-    }, 5 * 60 * 1000); // 5分钟
+    }, 5 * 60 * 1000);
+    
+    // 启动心跳监控
+    this.startHeartbeatMonitor();
   }
 
   /**
@@ -82,31 +87,27 @@ export class DingtalkStreamService {
 
     // 注册连接成功事件
     this.client.on('ready', () => {
-      console.log('✅ Stream 连接已建立，可以接收消息');
+      this.connectionStartTime = Date.now();
       this.isConnected = true;
-      this.reconnectAttempts = 0;
+      console.log('✅ Stream 连接已建立，可以接收消息');
+      console.log(`   连接时间: ${new Date().toISOString()}`);
     });
 
     // 注册连接关闭事件
     this.client.on('close', () => {
-      console.log('❌ Stream 连接已关闭');
       this.isConnected = false;
+      const connectionDuration = this.connectionStartTime ? 
+        Math.round((Date.now() - this.connectionStartTime) / 1000) : 0;
+      console.log(`❌ Stream 连接已关闭 (持续 ${connectionDuration} 秒)`);
+      console.log('   SDK 将自动重连...');
     });
 
-    // 注册错误事件
+    // 注册错误事件 - 仅记录日志，不手动重连（避免与 SDK keepAlive 冲突）
     this.client.on('error', (error: Error) => {
-      console.error('❌ Stream 连接错误:', error.message);
       this.isConnected = false;
-      
-      if (this.reconnectAttempts < this.maxReconnectAttempts) {
-        this.reconnectAttempts++;
-        console.log(`🔄 尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-        setTimeout(() => {
-          this.connectWithRetry().catch(console.error);
-        }, this.reconnectInterval);
-      } else {
-        console.error('❌ 达到最大重连次数，请检查网络或配置');
-      }
+      console.error('❌ Stream 连接错误:', error.message);
+      console.error('   错误类型:', error.constructor.name);
+      // SDK 的 keepAlive: true 会自动重连，无需手动处理
     });
 
     // 注册机器人消息回调监听器 - ⚠️ 必须在 connect 之前注册
@@ -124,33 +125,44 @@ export class DingtalkStreamService {
     });
 
     // 启动连接
-    await this.connectWithRetry();
+    try {
+      console.log('🚀 正在连接钉钉 Stream 服务...');
+      await this.client.connect();
+      console.log('✅ Stream 连接成功，等待消息...');
+    } catch (error) {
+      console.error('❌ 连接失败:', error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }
 
   /**
-   * 带重试的连接
+   * 启动心跳监控
+   * 如果超过 60 秒没有收到心跳，认为连接可能断开
    */
-  private async connectWithRetry(): Promise<void> {
-    try {
-      console.log('🚀 正在连接钉钉 Stream 服务...');
-      await this.client!.connect();
-      console.log('✅ Stream 连接成功，等待消息...');
-    } catch (error) {
-      console.error('❌ 连接失败:', error instanceof Error ? error.message : error);
-      throw error;
-    }
+  private startHeartbeatMonitor(): void {
+    this.heartbeatMonitorTimer = setInterval(() => {
+      if (this.isConnected && this.lastHeartbeatTime > 0) {
+        const timeSinceLastHeartbeat = Date.now() - this.lastHeartbeatTime;
+        if (timeSinceLastHeartbeat > this.heartbeatTimeout) {
+          console.warn(`⚠️ 心跳超时 (${Math.round(timeSinceLastHeartbeat / 1000)}秒)，连接可能断开`);
+          console.warn('   等待 SDK 自动重连...');
+        }
+      }
+    }, 30 * 1000); // 每 30 秒检查一次
+  }
+
+  /**
+   * 更新心跳时间
+   */
+  updateHeartbeat(): void {
+    this.lastHeartbeatTime = Date.now();
   }
 
   /**
    * 停止 Stream 连接
    */
   async stop(): Promise<void> {
-    if (this.client) {
-      console.log('🛑 正在停止 Stream 连接...');
-      this.client.disconnect();
-      this.client = null;
-      this.isConnected = false;
-    }
+    console.log('🛑 正在停止 Stream 连接...');
     
     // 清理定时器
     if (this.cleanupTimer) {
@@ -158,8 +170,23 @@ export class DingtalkStreamService {
       this.cleanupTimer = null;
     }
     
-    // 清空所有待处理消息
+    if (this.heartbeatMonitorTimer) {
+      clearInterval(this.heartbeatMonitorTimer);
+      this.heartbeatMonitorTimer = null;
+    }
+    
+    if (this.client) {
+      try {
+        this.client.disconnect();
+      } catch (error) {
+        console.error('断开连接时出错:', error);
+      }
+      this.client = null;
+    }
+    
+    this.isConnected = false;
     this.pendingMessages.clear();
+    console.log('✅ Stream 服务已停止');
   }
 
   /**
@@ -196,6 +223,15 @@ export class DingtalkStreamService {
           sessionWebhook,
           timestamp: Date.now()
         });
+        
+        // 更新管理员的 sessionWebhook（用于告警通知）
+        const adminUserId = getAdminConversationId();
+        if (adminUserId && userId === adminUserId) {
+          console.log(`[Stream] 检测到管理员消息，更新 sessionWebhook`);
+          updateAdminSessionWebhook(conversationId, sessionWebhook);
+        } else if (adminUserId) {
+          console.log(`[Stream] 忽略非管理员消息: ${userId} vs ${adminUserId}`);
+        }
       }
 
       console.log(`[Stream] 收到用户 ${userName}(${userId}) 的消息：${content}`);
@@ -337,10 +373,19 @@ export class DingtalkStreamService {
    * 获取连接状态
    */
   getStatus() {
+    const now = Date.now();
+    const uptime = this.connectionStartTime ? 
+      Math.round((now - this.connectionStartTime) / 1000) : 0;
+    const timeSinceHeartbeat = this.lastHeartbeatTime ? 
+      Math.round((now - this.lastHeartbeatTime) / 1000) : -1;
+    
     return {
       connected: this.isConnected,
-      reconnecting: this.reconnectAttempts > 0,
+      uptimeSeconds: uptime,
+      lastHeartbeatSecondsAgo: timeSinceHeartbeat,
       pendingMessages: this.pendingMessages.size,
+      connectionStartTime: this.connectionStartTime ? 
+        new Date(this.connectionStartTime).toISOString() : null,
     };
   }
 }

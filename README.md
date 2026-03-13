@@ -7,7 +7,10 @@
 - **钉钉机器人**：通过钉钉群聊机器人接收消息并回复，支持 Stream 模式无需内网穿透
 - **OpenCode 集成**：所有消息由 OpenCode CLI 处理，支持编程、对话、调用 skill/MCP
 - **多轮对话**：自动管理会话上下文，支持连续对话
-- **生产级特性**：消息去重、流量控制、并发限制、优雅关闭
+- **生产级特性**：
+  - 消息去重、流量控制、并发限制、优雅关闭
+  - **PM2 进程管理**：自动重启、内存限制、日志轮转
+  - **告警通知**：服务异常时自动通知管理员钉钉
 
 ## 系统架构
 
@@ -138,12 +141,29 @@ DINGTALK_APP_SECRET=your_app_secret
 
 ### 4. 启动服务
 
-```bash
-# 生产模式
-npm run build && npm start
+**方式一：直接启动（开发测试）**
 
-# 开发模式
-npm run dev
+```bash
+npm run build && npm start
+```
+
+**方式二：PM2 部署（生产推荐）**
+
+```bash
+# 一键启动
+./start.sh
+
+# 或者手动
+npm run build
+pm2 start ecosystem.config.js
+
+# 查看状态
+pm2 status
+pm2 logs dingtalk-bot
+
+# 重启/停止
+pm2 restart dingtalk-bot
+pm2 stop dingtalk-bot
 ```
 
 ## 配置说明
@@ -163,7 +183,22 @@ npm run dev
 | `GATEWAY_HOST` | 监听地址 | 0.0.0.0 |
 | `GATEWAY_API_TOKEN` | API 访问令牌（保护敏感接口） | 无 |
 
-### OpenCode 配置
+### 告警通知配置
+
+当系统发生异常时，自动发送告警通知到管理员钉钉。
+
+| 参数 | 说明 | 必填 |
+|-----|------|-----|
+| `ALERT_ADMIN_USER_ID` | 管理员钉钉用户 ID | 是（启用告警） |
+| `ALERT_MENTION_USERS` | 告警时 @ 的用户手机号 | 否 |
+| `ALERT_MENTION_ALL` | 是否 @ 所有人 | 否（默认 false） |
+
+**获取管理员用户 ID**：
+1. 启动服务后，管理员在钉钉中发送一条消息给机器人
+2. 查看服务日志，找到 `senderId` 字段
+3. 格式如：`$:LWCP_v1:$xxxxx`
+
+### PM2 部署配置
 
 | 参数 | 说明 | 默认值 |
 |-----|------|-------|
@@ -222,7 +257,7 @@ src/
 ├── dingtalk/
 │   ├── dingtalk.ts       # 钉钉服务核心
 │   ├── stream.ts         # Stream 模式
-│   └── streamSdk.ts      # Stream SDK 封装
+│   └── export.ts         # 导出工具
 ├── gateway/
 │   └── index.ts          # HTTP 网关服务
 ├── opencode/
@@ -231,7 +266,14 @@ src/
 ├── message-queue/        # 消息队列、流量控制
 ├── polling/              # 轮询服务
 ├── types/                # 类型定义
-└── utils/                # 工具函数
+└── utils/
+    ├── alert.ts          # 告警通知模块
+    ├── dedupCache.ts     # 消息去重
+    ├── markdown.ts       # Markdown 处理
+    └── messageId.ts      # 消息 ID 工具
+
+ecosystem.config.js       # PM2 配置
+start.sh                  # PM2 启动脚本
 ```
 
 ## 使用示例

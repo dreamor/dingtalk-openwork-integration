@@ -16,6 +16,14 @@ import { MessageQueue, RateLimiter, ConcurrencyController } from './message-queu
 import { MessageDeduplicator } from './utils/dedupCache';
 import { OpenCodeExecutor } from './opencode';
 import { PollingService } from './polling';
+import { 
+  sendAlert, 
+  notifyServiceStart, 
+  notifyServiceStop, 
+  notifyError,
+  isAlertEnabled,
+  setStreamService 
+} from './utils/alert';
 
 // 全局服务引用，用于优雅关闭
 let globalStreamService: DingtalkStreamService | null = null;
@@ -115,28 +123,50 @@ async function main(): Promise<void> {
     
     // 设置消息处理器
     streamService.setMessageHandler(async (userId, userName, content, conversationId, sessionWebhook) => {
+      const startTime = Date.now();
       console.log(`[Stream] 收到消息：${userName}(${userId}): ${content}`);
+      console.log(`[Stream] conversationId: ${conversationId}`);
+      console.log(`[Stream] sessionWebhook: ${sessionWebhook ? '✅ 有效' : '❌ 无效'}`);
       
       try {
-        // 所有消息直接交给 OpenCode 处理
-        const result = await gateway.processMessage({
-          msg: content,
-          userId,
-          userName,
+        // 使用超时包装消息处理，防止长时间阻塞
+        const processingTimeout = config.opencode.timeout + 10000; // OpenCode 超时 + 10秒缓冲
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error(`消息处理超时 (${processingTimeout / 1000}秒)`)), processingTimeout);
         });
+        
+        // 所有消息直接交给 OpenCode 处理
+        const result = await Promise.race([
+          gateway.processMessage({
+            msg: content,
+            userId,
+            userName,
+          }),
+          timeoutPromise
+        ]);
+        
+        const processingTime = Date.now() - startTime;
+        console.log(`[Stream] 消息处理完成，耗时: ${processingTime}ms`);
         
         // 使用 sessionWebhook 发送回复
         if (result.success && result.data?.result) {
           await streamService.sendMarkdownMessage(conversationId, 'OpenCode 回复', result.data.result);
-          console.log('[Stream] ✅ 回复发送成功');
+          console.log(`[Stream] ✅ 回复发送成功 (总耗时: ${Date.now() - startTime}ms)`);
         } else if (!result.success) {
           const errorMessage = `❌ ${result.message}`;
           await streamService.sendTextMessage(conversationId, errorMessage);
+          console.log(`[Stream] ⚠️ 处理失败: ${result.message}`);
         }
       } catch (error) {
-        console.error('[Stream] 消息处理失败:', error);
+        const processingTime = Date.now() - startTime;
+        console.error(`[Stream] 消息处理失败 (${processingTime}ms):`, error);
         const errorMessage = `❌ 消息处理失败\n\n错误：${error instanceof Error ? error.message : '未知错误'}`;
-        await streamService.sendTextMessage(conversationId, errorMessage);
+        
+        try {
+          await streamService.sendTextMessage(conversationId, errorMessage);
+        } catch (sendError) {
+          console.error('[Stream] 发送错误消息失败:', sendError);
+        }
       }
     });
 
@@ -145,6 +175,14 @@ async function main(): Promise<void> {
       console.log('✅ Stream 模式已启动');
       console.log('   - 无需内网穿透，钉钉会主动推送消息');
       console.log('   - 在你的钉钉应用后台配置 Stream 模式即可');
+      
+      // 绑定 Stream 服务到告警模块
+      setStreamService(streamService);
+      
+      // 发送服务启动通知
+      if (isAlertEnabled()) {
+        notifyServiceStart().catch(err => console.error('[Alert] 发送启动通知失败:', err));
+      }
     } catch (error) {
       console.error('❌ Stream 模式启动失败，将使用轮询模式:', error);
       globalPollingService = await startPollingFallback(dingtalkService, gateway);
@@ -263,14 +301,53 @@ async function cleanupResources(): Promise<void> {
 
 process.on('SIGINT', async () => {
   console.log('\n🛑 接收到关闭信号，正在清理...');
+  if (isAlertEnabled()) {
+    notifyServiceStop('收到 SIGINT 信号').catch(() => {});
+  }
   await cleanupResources();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   console.log('\n🛑 接收到终止信号，正在清理...');
+  if (isAlertEnabled()) {
+    notifyServiceStop('收到 SIGTERM 信号').catch(() => {});
+  }
   await cleanupResources();
   process.exit(0);
+});
+
+// 捕获未处理的 Promise 拒绝
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ 未处理的 Promise 拒绝:');
+  console.error('   原因:', reason);
+  console.error('   Promise:', promise);
+  
+  // 发送告警
+  if (isAlertEnabled()) {
+    const reasonStr = reason instanceof Error ? reason.message : String(reason);
+    notifyError('未处理的 Promise 拒绝', reasonStr).catch(() => {});
+  }
+});
+
+// 捕获未捕获的异常
+process.on('uncaughtException', async (error) => {
+  console.error('❌ 未捕获的异常:');
+  console.error('   错误:', error.message);
+  console.error('   堆栈:', error.stack);
+  
+  // 发送告警
+  if (isAlertEnabled()) {
+    await notifyError('未捕获的异常', error.message, error.stack).catch(() => {});
+  }
+  
+  // 严重错误，清理后退出
+  try {
+    await cleanupResources();
+  } catch (e) {
+    // ignore
+  }
+  process.exit(1);
 });
 
 main().catch((error) => {
