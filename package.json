@@ -1,6 +1,6 @@
 {
   "name": "dingtalk-openwork-integration",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "钉钉控制 Open Work CLI 集成系统",
   "main": "dist/index.js",
   "scripts": {
